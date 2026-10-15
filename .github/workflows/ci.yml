@@ -16,4 +16,7 @@ jobs:
       - run: corepack enable && pnpm install --frozen-lockfile && pnpm build
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
-        with: { context: ., push: false, tags: courier/flikk-app:${{ github.sha }} }
+        with:
+          context: .
+          push: false
+          tags: "courier/flikk-app:${{ github.sha }}"
