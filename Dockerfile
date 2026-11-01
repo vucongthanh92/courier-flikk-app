@@ -14,5 +14,7 @@ RUN pnpm build
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+RUN mkdir -p /var/cache/nginx/client_temp /var/run \
+  && chown -R nginx:nginx /var/cache/nginx /var/run
 EXPOSE 8081
 USER nginx
