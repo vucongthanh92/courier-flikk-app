@@ -18,3 +18,4 @@ RUN mkdir -p /var/cache/nginx/client_temp /var/run \
   && chown -R nginx:nginx /var/cache/nginx /var/run
 EXPOSE 8081
 USER nginx
+CMD ["nginx", "-g", "daemon off; pid /tmp/nginx.pid;"]
