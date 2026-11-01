@@ -1,0 +1,64 @@
+name: Release dev image
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-southeast-2
+      AWS_ROLE_ARN: arn:aws:iam::016170038458:role/courier-dev-github-ecr-publisher
+      ECR_REPOSITORY: courier/flikk-app
+      RELEASE_APP_ID: ${{ secrets.COURIER_RELEASE_APP_ID }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.COURIER_RELEASE_APP_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ap-southeast-2
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:sha-${{ github.sha }}
+          build-args: |
+            VITE_APP_BASE_PATH=/flikk/
+            VITE_PAYMENT_GATEWAY_API_BASE_URL=https://courier.io.vn/api/payment/api/v1
+            VITE_USER_API_BASE_URL=https://courier.io.vn/api/user/api/v1
+            VITE_CONVERSA_APP_URL=https://courier.io.vn/conversa/
+            VITE_SSO_CLIENT_ID=flikk-web
+            VITE_SSO_REDIRECT_URI=https://courier.io.vn/flikk/oauth/callback/courier
+      - id: token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ env.RELEASE_APP_ID }}
+          private-key: ${{ env.RELEASE_APP_PRIVATE_KEY }}
+          owner: vucongthanh92
+          repositories: courier-common
+      - name: Promote immutable image through GitOps
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/vucongthanh92/courier-common.git" common
+          cd common
+          branch="bot/release/flikk-app/${GITHUB_SHA}"
+          git switch -C "$branch" origin/main
+          sed -E -i "s|^([[:space:]]*newTag: ).*$|\\1sha-${GITHUB_SHA}|" k8s/overlays/dev/flikk-app/kustomization.yaml
+          git config user.name courier-release-bot[bot]
+          git config user.email courier-release-bot[bot]@users.noreply.github.com
+          git add k8s/overlays/dev/flikk-app/kustomization.yaml
+          git commit -m "release: deploy flikk-app ${GITHUB_SHA:0:12}"
+          git push --force-with-lease origin "$branch"
+          gh pr create --base main --head "$branch" --title "release: deploy flikk-app ${GITHUB_SHA:0:12}" --body "- **Service cần update:** \`flikk-app\`\n- **Pull request đã được merge:** main commit ${GITHUB_SHA}\n- **Mô tả update:** Immutable ARM64 image published.\n\n— Nội dung được tạo tự động bởi Courier Dev Release Bot (workflow được cấu hình bởi AI, OpenAI Codex)." --repo vucongthanh92/courier-common
+          gh pr merge "$branch" --repo vucongthanh92/courier-common --squash --delete-branch
